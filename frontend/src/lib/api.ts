@@ -1,10 +1,10 @@
 import { auth } from './firebase';
 
 // URL para producción
-//const API_BASE_URL = 'https://us-central1-turnos-rotativos-app.cloudfunctions.net/api';
+const API_BASE_URL = 'https://us-central1-turnos-rotativos-app.cloudfunctions.net/api';
 
 // Para desarrollo local, comentar la línea de arriba y descomentar esta:
-const API_BASE_URL = 'http://localhost:5002/turnos-rotativos-app/us-central1/api';
+//const API_BASE_URL = 'http://localhost:5002/turnos-rotativos-app/us-central1/api';
 
 // Para verificar que la API está activa
 const API_ACTIVE = true;
