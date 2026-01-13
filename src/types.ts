@@ -4,7 +4,8 @@ export type Role = 'ADMIN' | 'INGENIERO' | 'AGENTE';
 
 // Estructura para el perfil de un usuario
 export interface UserProfile {
-    uid: string;
+    id?: string; // ID del documento de Firestore
+    uid: string; // UID de Firebase Authentication
     email: string;
     fullName: string;
     role: Role;

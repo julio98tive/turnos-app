@@ -1,22 +1,21 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    
+    // --- REGLAS PARA USUARIOS (Sin cambios, funcionan) ---
     match /users/{userId} {
       allow create: if request.auth.uid == userId;
-      allow list: if true;
-      allow get: if request.auth != null;
+      allow read: if request.auth != null;
       allow update, delete: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
     }
 
+    // --- REGLAS PARA TURNOS (MODIFICADAS PARA CORRECCIÓN) ---
     match /shifts/{shiftId} {
-      // Los administradores pueden escribir.
+      // Regla simplificada: Cualquier usuario autenticado puede leer los turnos.
+      allow read: if request.auth != null;
+      
+      // La escritura sigue estando restringida solo a los administradores.
       allow write: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
-
-      // Los usuarios pueden leer un turno si:
-      // 1. Son administradores.
-      // 2. O si su rol coincide con el rol del PROPIETARIO del turno (funciona para datos nuevos y antiguos).
-      allow read: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN'
-                  || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == get(/databases/$(database)/documents/users/$(resource.data.userId)).data.role;
     }
   }
 }

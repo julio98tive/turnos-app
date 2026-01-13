@@ -68,7 +68,7 @@ export const onShiftCreate = onDocumentCreated(
 
         const assignedUser = userDoc.data() as UserProfile;
 
-        // CORRECCIÓN DE LÓGICA: Aislar el fallo del email para no bloquear Telegram.
+        // Notify the assigned user
         try {
           const subject = "Nuevo Turno Asignado";
           const htmlBody = `<p>Se ha asignado un nuevo turno a <b>${assignedUser.fullName}</b>:</p><ul><li><b>Inicio:</b> ${formatDateTime(shift.start)}</li><li><b>Fin:</b> ${formatDateTime(shift.end)}</li></ul>`;
@@ -85,6 +85,34 @@ export const onShiftCreate = onDocumentCreated(
 
         await snapshot.ref.update({creationNotificationSent: true});
         logger.log(`Sent single creation notification for shift ${snapshot.id}.`);
+
+        // Notify admins
+        const adminUsersSnapshot = await db.collection("users").where("role", "==", "ADMIN").get();
+        if (!adminUsersSnapshot.empty) {
+          const subject = `Nuevo Turno Asignado a: ${assignedUser.fullName}`;
+          const htmlBody = `<p>Se ha asignado un nuevo turno a <b>${assignedUser.fullName}</b>:</p><ul><li><b>Inicio:</b> ${formatDateTime(shift.start)}</li><li><b>Fin:</b> ${formatDateTime(shift.end)}</li></ul><p>(Notificación para administradores)</p>`;
+          const safeFullName = escapeTelegramMarkdown(assignedUser.fullName);
+          const telegramText = `*Nuevo Turno Asignado a: ${safeFullName}*\n\nSe ha asignado un nuevo turno a *${safeFullName}*:\n\\- *Inicio:* ${formatDateTime(shift.start, true)}\n\\- *Fin:* ${formatDateTime(shift.end, true)}\n\n_(Notificación para Admins)_`;
+
+          for (const adminDoc of adminUsersSnapshot.docs) {
+            const admin = adminDoc.data() as UserProfile;
+            try {
+              if (admin.email) {
+                await sendEmail(admin.email, subject, "", htmlBody);
+              }
+            } catch (emailError) {
+              logger.error(`[NON-FATAL] Falla en el envío de email de admin para el turno ${snapshot.id}`, {adminId: adminDoc.id, emailError});
+            }
+            if (admin.telegramChatId) {
+              try {
+                await sendTelegramMessage(admin.telegramChatId, telegramText);
+              } catch (telegramError) {
+                logger.error(`[NON-FATAL] Falla en el envío de Telegram a admin para el turno ${snapshot.id}`, {adminId: adminDoc.id, telegramError});
+              }
+            }
+          }
+          logger.log(`Sent admin notifications for single shift ${snapshot.id}.`);
+        }
       } catch (error) {
         logger.error(`[FATAL] onShiftCreate falló DESPUÉS del envío de notificaciones para ${snapshot.id}:`, error);
       }
@@ -115,6 +143,13 @@ export const processPendingNotifications = onSchedule(
           if (!userDoc.exists || !userDoc.data()) continue;
           const assignedUser = userDoc.data() as UserProfile;
 
+          userShifts.sort((a, b) => {
+            const dateA = a.start instanceof admin.firestore.Timestamp ? a.start.toDate() : new Date(a.start as any);
+            const dateB = b.start instanceof admin.firestore.Timestamp ? b.start.toDate() : new Date(b.start as any);
+            return dateA.getTime() - dateB.getTime();
+          });
+
+          // Notify the assigned user (bulk)
           try {
             const subject = `Nuevos Turnos Asignados (${userShifts.length})`;
             const shiftsHtml = userShifts.map((s) => `<li><b>Inicio:</b> ${formatDateTime(s.start)} | <b>Fin:</b> ${formatDateTime(s.end)}</li>`).join("");
@@ -130,6 +165,37 @@ export const processPendingNotifications = onSchedule(
             const shiftsText = userShifts.map((s) => `\\- *Inicio:* ${formatDateTime(s.start, true)}\n  *Fin:* ${formatDateTime(s.end, true)}`).join("\n\n");
             const telegramText = `*Nuevos Turnos Asignados ${safeLength}*\n\nHola ${safeFullName}, se te han asignado los siguientes turnos:\n\n${shiftsText}`;
             await sendTelegramMessage(assignedUser.telegramChatId, telegramText);
+          }
+
+          // Notify admins about the bulk assignment
+          const adminUsersSnapshot = await db.collection("users").where("role", "==", "ADMIN").get();
+          if (!adminUsersSnapshot.empty) {
+            const subject = `Asignación Masiva a: ${assignedUser.fullName} (${userShifts.length} turnos)`;
+            const shiftsHtml = userShifts.map((s) => `<li><b>Inicio:</b> ${formatDateTime(s.start)} | <b>Fin:</b> ${formatDateTime(s.end)}</li>`).join("");
+            const htmlBody = `<p>Se han asignado ${userShifts.length} nuevos turnos a <b>${assignedUser.fullName}</b>:</p><ul>${shiftsHtml}</ul><p>(Notificación para administradores)</p>`;
+            const safeFullName = escapeTelegramMarkdown(assignedUser.fullName);
+            const safeLength = escapeTelegramMarkdown(`(${userShifts.length})`);
+            const shiftsText = userShifts.map((s) => `\\- *Inicio:* ${formatDateTime(s.start, true)}\n  *Fin:* ${formatDateTime(s.end, true)}`).join("\n\n");
+            const telegramText = `*Asignación Masiva a: ${safeFullName} ${safeLength}*\n\nSe han asignado los siguientes turnos a ${safeFullName}:\n\n${shiftsText}\n\n_(Notificación para Admins)_`;
+
+            for (const adminDoc of adminUsersSnapshot.docs) {
+              const admin = adminDoc.data() as UserProfile;
+              try {
+                if (admin.email) {
+                  await sendEmail(admin.email, subject, "", htmlBody);
+                }
+              } catch (emailError) {
+                logger.error(`[NON-FATAL] Falla en el envío de email masivo a admin para el usuario ${userId}`, {adminId: adminDoc.id, emailError});
+              }
+              if (admin.telegramChatId) {
+                try {
+                  await sendTelegramMessage(admin.telegramChatId, telegramText);
+                } catch (telegramError) {
+                  logger.error(`[NON-FATAL] Falla en el envío de Telegram masivo a admin para el usuario ${userId}`, {adminId: adminDoc.id, telegramError});
+                }
+              }
+            }
+            logger.log(`Sent admin notifications for bulk assignment to user ${userId}.`);
           }
 
           const batch = db.batch();
