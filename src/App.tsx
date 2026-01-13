@@ -1,128 +1,124 @@
+
 import { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { collection, onSnapshot, query, doc, getDoc, Timestamp } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
-import type { AppUser, Shift } from './types';
+import { UserProfile, Shift } from './types';
 import { Login } from './components/auth/Login';
 import { AdminDashboard } from './components/dashboard/AdminDashboard';
 import { UserDashboard } from './components/dashboard/UserDashboard';
 
-function App() {
-  const [user, setUser] = useState<AppUser | null>(null);
-  const [allUsers, setAllUsers] = useState<AppUser[]>([]);
-  const [shifts, setShifts] = useState<Shift[]>([]);
-  const [loading, setLoading] = useState(true);
+export const App = () => {
+    const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+    const [users, setUsers] = useState<UserProfile[]>([]);
+    const [shifts, setShifts] = useState<Shift[]>([]);
+    const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
-      setLoading(true);
-      if (firebaseUser) {
-        const userRef = doc(db, 'users', firebaseUser.uid);
-        const unsubscribeProfile = onSnapshot(userRef, (doc) => {
-          if (doc.exists()) {
-            setUser({ 
-                uid: doc.id, 
-                fullName: doc.data().fullName, // Add fullName here
-                ...doc.data() 
-            } as AppUser);
-          } else {
-            setUser(null);
-          }
-          setLoading(false);
+    // 1. Manejo de autenticación
+    useEffect(() => {
+        const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
+            if (firebaseUser) {
+                const userDocSnap = await getDoc(doc(db, 'users', firebaseUser.uid));
+                if (userDocSnap.exists()) {
+                    setCurrentUser({ uid: firebaseUser.uid, ...userDocSnap.data() } as UserProfile);
+                } else { setCurrentUser(null); }
+            } else { setCurrentUser(null); }
+            setLoading(false);
         });
-        return () => unsubscribeProfile();
-      } else {
-        setUser(null);
-        setAllUsers([]);
-        setShifts([]);
-        setLoading(false);
-      }
-    });
+        return () => unsubscribeAuth();
+    }, []);
 
-    return () => unsubscribeAuth();
-  }, []);
+    // 2. Carga de lista de usuarios
+    useEffect(() => {
+        if (!currentUser) {
+            setUsers([]);
+            return;
+        }
+        const unsubscribeUsers = onSnapshot(query(collection(db, 'users')),
+            (snapshot) => setUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile))),
+            (error) => console.error("Error al cargar usuarios:", error)
+        );
+        return () => unsubscribeUsers();
+    }, [currentUser]);
 
-  useEffect(() => {
-    if (user?.role === 'ADMIN') {
-      const usersQuery = query(collection(db, 'users'));
-      const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
-        const usersData = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as AppUser));
-        setAllUsers(usersData);
-      });
-      return () => unsubscribeUsers();
-    } else {
-        setAllUsers([]);
+    // 3. Carga de turnos con manejo de fechas robusto
+    useEffect(() => {
+        if (!currentUser) {
+            setShifts([]);
+            return;
+        }
+        
+        const q = query(collection(db, 'shifts'));
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const processedShifts = snapshot.docs.map(doc => {
+                const data = doc.data();
+                
+                let startStr: string | null = null;
+                let endStr: string | null = null;
+
+                // Manejar fecha de inicio (Timestamp o string)
+                if (data.start?.toDate) { // Es un Timestamp de Firestore?
+                    startStr = (data.start as Timestamp).toDate().toISOString();
+                } else if (typeof data.start === 'string') { // Es un string?
+                    const d = new Date(data.start);
+                    if (!isNaN(d.getTime())) startStr = d.toISOString();
+                }
+
+                // Manejar fecha de fin (Timestamp o string)
+                if (data.end?.toDate) { // Es un Timestamp de Firestore?
+                    endStr = (data.end as Timestamp).toDate().toISOString();
+                } else if (typeof data.end === 'string') { // Es un string?
+                    const d = new Date(data.end);
+                    if (!isNaN(d.getTime())) endStr = d.toISOString();
+                }
+
+                if (startStr && endStr && data.userId && data.type) {
+                    return {
+                        id: doc.id,
+                        userId: data.userId,
+                        start: startStr,
+                        end: endStr,
+                        type: data.type,
+                    } as Shift;
+                }
+                
+                console.warn(`Turno con ID: ${doc.id} fue omitido por formato de fecha inválido.`);
+                return null;
+            }).filter((s): s is Shift => s !== null);
+
+            setShifts(processedShifts);
+        }, (error) => {
+            console.error("Error crítico al cargar los turnos:", error);
+            setShifts([]);
+        });
+
+        return () => unsubscribe();
+    }, [currentUser]);
+
+    if (loading) {
+        return <div className="flex justify-center items-center h-screen">Cargando...</div>;
     }
-  }, [user]);
 
-  useEffect(() => {
-    if (!user) return;
-
-    let shiftsQuery;
-    if (user.role === 'ADMIN') {
-        shiftsQuery = query(collection(db, 'shifts'));
-    } else {
-        shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', user.uid));
-    }
-
-    const unsubscribeShifts = onSnapshot(shiftsQuery, (snapshot) => {
-      const shiftsData = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-            id: doc.id,
-            ...data,
-            start: data.start.toDate(),
-            end: data.end.toDate(),
-        } as Shift;
-       }).sort((a,b) => a.start.getTime() - b.start.getTime());
-
-      if (user.role === 'ADMIN' && allUsers.length > 0) {
-         const enrichedShifts = shiftsData.map(shift => {
-            const shiftUser = allUsers.find(u => u.uid === shift.userId);
-            return {
-                ...shift, 
-                userEmail: shiftUser?.email || 'Desconocido',
-                userFullName: shiftUser?.fullName || shiftUser?.email || 'Desconocido' // Add fullName
-            };
-         });
-         setShifts(enrichedShifts);
-      } else {
-        setShifts(shiftsData);
-      }
-    });
-
-    return () => unsubscribeShifts();
-  }, [user, allUsers]);
-
-  const handleLogout = () => {
-    signOut(auth);
-  };
-
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><p>Cargando...</p></div>;
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-100">
-       <nav className="bg-white shadow-md w-full">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between h-16">
-                <h1 className="text-lg font-bold">Turnos Rotativos App</h1>
-                {user && <button onClick={handleLogout} className="bg-red-500 text-white p-2 rounded hover:bg-red-600">Cerrar Sesión</button>}
+    return (
+        <Router>
+            <div className="min-h-screen bg-gray-100">
+                <header className="bg-gray-800 text-white p-4 flex justify-between items-center">
+                    <h1 className="text-xl font-bold">Gestor de Turnos</h1>
+                    {currentUser && <button onClick={() => auth.signOut()} className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded">Cerrar Sesión</button>}
+                </header>
+                <main className="p-8">
+                    <Routes>
+                        <Route path="/login" element={!currentUser ? <Login /> : <Navigate to="/"/>} />
+                        <Route path="/" element={currentUser ? (
+                            currentUser.role === 'ADMIN' 
+                                ? <AdminDashboard currentUser={currentUser} users={users} shifts={shifts} /> 
+                                : <UserDashboard currentUser={currentUser} shifts={shifts} users={users} />
+                        ) : <Navigate to="/login" />} />
+                    </Routes>
+                </main>
             </div>
-        </div>
-    </nav>
-    <main className="p-8">
-       {user ? (
-         user.role === 'ADMIN'
-           ? <AdminDashboard currentUser={user} users={allUsers} shifts={shifts} />
-           : <UserDashboard currentUser={user} shifts={shifts} />
-       ) : (
-         <Login />
-       )}
-    </main>
-    </div>
-  );
-}
-
-export default App;
+        </Router>
+    );
+};

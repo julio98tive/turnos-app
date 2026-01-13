@@ -2,27 +2,21 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{userId} {
-      // Permitir que un nuevo usuario cree su propio perfil de usuario. 
-      // Esto es crucial para el registro.
       allow create: if request.auth.uid == userId;
-
-      // Permitir que CUALQUIER persona (incluidos los usuarios no autenticados) verifique si existen usuarios.
-      // Esto rompe el círculo vicioso durante el registro del primer administrador.
       allow list: if true;
-
-      // Solo permitir que los usuarios autenticados lean los perfiles de otros usuarios.
       allow get: if request.auth != null;
-
-      // Solo los administradores pueden actualizar o eliminar documentos de usuario.
       allow update, delete: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
     }
 
     match /shifts/{shiftId} {
-      // Solo los administradores pueden crear, actualizar o eliminar turnos.
+      // Los administradores pueden escribir.
       allow write: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
 
-      // Los administradores pueden leer todos los turnos. Los demás usuarios solo pueden leer los turnos asignados a ellos.
-      allow read: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN' || request.auth.uid == resource.data.userId;
+      // Los usuarios pueden leer un turno si:
+      // 1. Son administradores.
+      // 2. O si su rol coincide con el rol del PROPIETARIO del turno (funciona para datos nuevos y antiguos).
+      allow read: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN'
+                  || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == get(/databases/$(database)/documents/users/$(resource.data.userId)).data.role;
     }
   }
 }

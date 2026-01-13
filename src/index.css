@@ -1,3 +1,45 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Make calendar events taller and allow content to wrap */
+.fc-daygrid-event-harness {
+    min-height: 40px !important; /* Give more vertical space */
+}
+
+.fc-event {
+    white-space: normal !important; /* Allow text wrapping inside the event box */
+    align-items: center;
+    padding: 2px 4px !important;
+}
+
+/* Custom structure for the event title */
+.fc-event-title-container {
+    font-size: 12px;
+    line-height: 1.3;
+}
+
+.fc-event-title-name {
+    font-weight: 600; /* Bold */
+}
+
+.fc-event-title-time {
+    font-weight: 400; /* Normal */
+}
+
+/* 
+  Definitive style for agent shifts to ensure consistency across all views.
+  This rule is applied via JavaScript (eventDidMount) to agent events.
+*/
+.agent-event, .agent-event:hover {
+    background-color: #3B82F6 !important;
+    border-color: #3B82F6 !important;
+}
+
+/* 
+  FullCalendar uses different child elements for text in different views.
+  This universal selector ensures that ALL text inside the agent event is white.
+*/
+.agent-event * {
+    color: white !important;
+}

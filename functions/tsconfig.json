@@ -1,17 +1,22 @@
 {
   "compilerOptions": {
     "module": "NodeNext",
-    "esModuleInterop": true,
     "moduleResolution": "nodenext",
-    "noImplicitReturns": true,
-    "noUnusedLocals": true,
-    "outDir": "lib",
-    "sourceMap": true,
+    "esModuleInterop": true,
+    "target": "es2022",
     "strict": true,
-    "target": "es2017"
+    "sourceMap": true,
+    "skipLibCheck": true,
+    "outDir": "lib",
+    "rootDir": "src",
+    "noImplicitReturns": true,
+    "noUnusedLocals": true
   },
-  "compileOnSave": true,
   "include": [
-    "src"
-  ]
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ],
+  "compileOnSave": true
 }

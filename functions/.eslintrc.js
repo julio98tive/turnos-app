@@ -19,7 +19,6 @@ module.exports = {
   },
   ignorePatterns: [
     "/lib/**/*", // Ignore built files.
-    "/generated/**/*", // Ignore generated files.
   ],
   plugins: [
     "@typescript-eslint",
@@ -28,6 +27,8 @@ module.exports = {
   rules: {
     "quotes": ["error", "double"],
     "import/no-unresolved": 0,
-    "indent": ["error", 2],
+    "max-len": "off", // Turn off the max length rule
+    "require-jsdoc": "off", // Turn off the JSDoc requirement
+    "@typescript-eslint/no-unused-vars": "warn", // Warn instead of error for unused variables
   },
 };

@@ -1,20 +1,26 @@
+
+// Definición de roles en la aplicación
 export type Role = 'ADMIN' | 'INGENIERO' | 'AGENTE';
 
-export interface AppUser {
+// Estructura para el perfil de un usuario
+export interface UserProfile {
     uid: string;
     email: string;
-    fullName?: string; // Optional because old users might not have it
+    fullName: string;
     role: Role;
+    telegramChatId?: string;
 }
 
+// Estructura para un turno de trabajo
 export interface Shift {
     id: string;
     userId: string;
-    role: Role;
-    start: Date;
-    end: Date;
+    start: string;
+    end: string;
     type: 'rotativo' | 'disponibilidad';
-    // Enriched data, not in Firestore document
-    userEmail?: string;
-    userFullName?: string;
+    source?: 'BULK' | 'SINGLE';
+
+    // Flags de notificación estandarizados
+    creationNotificationSent?: boolean; // Se marca a TRUE después de la notificación de creación/bulk.
+    reminderNotificationSent?: boolean; // Se marca a TRUE después del recordatorio de 24/48h.
 }
