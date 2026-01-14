@@ -3,27 +3,42 @@ import * as logger from "firebase-functions/logger";
 import * as nodemailer from "nodemailer";
 import axios, {isAxiosError} from "axios";
 
-// Esta función no necesita cambios, la dejamos como está.
+/**
+ * Sends an email.
+ * @param {string} to The primary recipient's email address.
+ * @param {string} subject The subject of the email.
+ * @param {string} text The plain text body of the email.
+ * @param {string} html The HTML body of the email.
+ * @param {string} [bcc] A comma-separated list of BCC recipients.
+ */
 export async function sendEmail(
-    to: string, subject: string, text: string, html: string,
+    to: string, subject: string, text: string, html: string, bcc?: string,
 ) {
   const smtpUser = process.env.SMTP_USER;
   const smtpPassword = process.env.SMTP_PASSWORD;
+
   if (!smtpUser || !smtpPassword) {
     logger.error("FATAL: SMTP credentials not set.");
     throw new Error("SMTP credentials are not configured.");
   }
+
   const transporter = nodemailer.createTransport({
     host: "smtp.office365.com", port: 587, secure: false,
     auth: {user: smtpUser, pass: smtpPassword}, requireTLS: true,
   });
+
   try {
     const info = await transporter.sendMail({
-      from: `"Notificador de Turnos" <${smtpUser}>`, to, subject, text, html,
+      from: `"Notificador de Turnos" <${smtpUser}>`,
+      to,
+      bcc, // Add the BCC recipients here
+      subject,
+      text,
+      html,
     });
-    logger.info("Email sent successfully to %s: %s", to, info.messageId);
+    logger.info("Email sent successfully to %s (BCC: %s): %s", to, bcc || "none", info.messageId);
   } catch (error) {
-    logger.error("FATAL: Error sending email to %s:", to, error);
+    logger.error("FATAL: Error sending email to %s (BCC: %s):", to, bcc || "none", error);
     throw error;
   }
 }
