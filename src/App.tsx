@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
+import { doc, getDoc, collection, onSnapshot, Unsubscribe } from 'firebase/firestore'; // 1. Importar onSnapshot
 import { auth, db } from './firebase';
 import type { UserProfile, Shift } from './types';
 import { Login } from './components/auth/Login';
@@ -16,8 +16,9 @@ export const App = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    // Este useEffect para la autenticación no cambia
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+        const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
             if (user) {
                 try {
                     const userDocRef = doc(db, 'users', user.uid);
@@ -42,70 +43,74 @@ export const App = () => {
                     console.error("Error al obtener el perfil de usuario:", err);
                     setError("No se pudo cargar el perfil del usuario.");
                     setCurrentUser(null);
+                } finally {
+                  // Solo deja de cargar cuando el usuario está resuelto
+                  setIsLoading(false);
                 }
             } else {
                 setCurrentUser(null); 
+                setIsLoading(false); // Deja de cargar si no hay usuario
             }
         });
 
-        return () => unsubscribe();
+        return () => unsubscribeAuth();
     }, []);
 
+    // 2. useEffect modificado para escuchar en tiempo real
     useEffect(() => {
-        const fetchData = async () => {
-            if (!currentUser) return; 
+        if (!currentUser) {
+            // Si no hay usuario, limpiamos los datos para evitar mostrar datos antiguos al hacer logout
+            setUsers([]);
+            setShifts([]);
+            return;
+        }
 
-            setIsLoading(true);
-            setError(null);
+        setError(null);
 
-            try {
-                const [usersSnapshot, shiftsSnapshot] = await Promise.all([
-                    getDocs(collection(db, 'users')),
-                    getDocs(collection(db, 'shifts'))
-                ]);
+        // Suscripción a la colección 'users'
+        const unsubscribeUsers: Unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
+            const usersList = snapshot.docs.map(doc => ({
+                ...doc.data(),
+                id: doc.id,
+                uid: doc.id,
+            } as UserProfile));
+            setUsers(usersList);
+        }, (err: any) => {
+            console.error("Error al escuchar la colección de usuarios:", err);
+            setError(`Error al cargar usuarios: ${err.message}`);
+        });
 
-                // CORRECCIÓN: Aseguramos que cada usuario tenga `id` y `uid`.
-                const usersList = usersSnapshot.docs.map(doc => ({
-                    ...doc.data(),
+        // Suscripción a la colección 'shifts'
+        const unsubscribeShifts: Unsubscribe = onSnapshot(collection(db, 'shifts'), (snapshot) => {
+            const shiftsList = snapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    ...data,
                     id: doc.id,
-                    uid: doc.id, // Esta línea es la corrección clave
-                } as UserProfile));
-                setUsers(usersList);
+                    start: data.start.toDate(),
+                    end: data.end.toDate(),
+                } as Shift;
+            });
+            setShifts(shiftsList);
+        }, (err: any) => {
+            console.error("Error al escuchar la colección de turnos:", err);
+            setError(`Error al cargar turnos: ${err.message}`);
+        });
 
-                const shiftsList = shiftsSnapshot.docs.map(doc => {
-                    const data = doc.data();
-                    return {
-                        ...data,
-                        id: doc.id,
-                        start: data.start.toDate(),
-                        end: data.end.toDate(),
-                    } as Shift;
-                });
-                setShifts(shiftsList);
-
-            } catch (err: any) {
-                console.error("Error crítico al cargar los datos:", err);
-                setError(`Se produjo un error al cargar los datos del dashboard: ${err.message}`);
-            } finally {
-                setIsLoading(false);
-            }
+        // 3. Función de limpieza que se ejecuta cuando el usuario hace logout
+        return () => {
+            unsubscribeUsers();
+            unsubscribeShifts();
         };
 
-        if (currentUser) {
-            fetchData();
-        }
-         else {
-            setIsLoading(false);
-        }
-
-    }, [currentUser]);
+    }, [currentUser]); // Se ejecuta cada vez que 'currentUser' cambia
 
     const handleLogout = async () => {
         await auth.signOut();
     };
 
     if (isLoading) {
-        return <div>Cargando...</div>; 
+        return <div className="flex justify-center items-center min-h-screen">Cargando...</div>; 
     }
 
     return (
