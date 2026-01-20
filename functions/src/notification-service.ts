@@ -1,4 +1,3 @@
-
 import {onDocumentCreated} from "firebase-functions/v2/firestore";
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import {logger} from "firebase-functions/v2";
@@ -44,14 +43,14 @@ const formatDateTime = (date: string | Date | firestore.Timestamp, forTelegram =
   return dateObj.toLocaleString("es-CO", options);
 };
 
-const getAdminBcc = async (db: admin.firestore.Firestore): Promise<string | undefined> => {
-  const adminUsersSnapshot = await db.collection("users").where("role", "==", "ADMIN").get();
-  if (adminUsersSnapshot.empty) return undefined;
-  return adminUsersSnapshot.docs
-      .map((doc) => (doc.data() as UserProfile).email)
-      .filter((email) => !!email)
-      .join(",");
-};
+// const getAdminBcc = async (db: admin.firestore.Firestore): Promise<string | undefined> => {
+//   const adminUsersSnapshot = await db.collection("users").where("role", "==", "ADMIN").get();
+//   if (adminUsersSnapshot.empty) return undefined;
+//   return adminUsersSnapshot.docs
+//       .map((doc) => (doc.data() as UserProfile).email)
+//       .filter((email) => !!email)
+//       .join(",");
+// };
 
 export const onShiftCreate = onDocumentCreated(
     {
@@ -72,12 +71,12 @@ export const onShiftCreate = onDocumentCreated(
           return;
         }
         const assignedUser = userDoc.data() as UserProfile;
-        const adminBcc = await getAdminBcc(db);
+        // const adminBcc = await getAdminBcc(db);
 
         try {
           const subject = `Nuevo Turno Asignado: ${assignedUser.fullName}`;
           const htmlBody = `<p>Se ha asignado un nuevo turno a <b>${assignedUser.fullName}</b>:</p><ul><li><b>Inicio:</b> ${formatDateTime(shift.start)}</li><li><b>Fin:</b> ${formatDateTime(shift.end)}</li></ul>`;
-          await sendEmail(assignedUser.email, subject, "", htmlBody, adminBcc);
+          await sendEmail(assignedUser.email, subject, "", htmlBody);
         } catch (emailError) {
           logger.error(`[NON-FATAL] Email sending failed for shift ${snapshot.id}:`, emailError);
         }
@@ -130,7 +129,7 @@ export const processPendingNotifications = onSchedule(
         shiftsByUser.set(shift.userId, userShifts);
       });
 
-      const adminBcc = await getAdminBcc(db);
+      // const adminBcc = await getAdminBcc(db);
       const adminChatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
 
       for (const [userId, userShifts] of shiftsByUser.entries()) {
@@ -145,7 +144,7 @@ export const processPendingNotifications = onSchedule(
             const subject = `Asignación Masiva: ${userShifts.length} Nuevos Turnos Asignados`;
             const shiftsHtml = userShifts.map((s) => `<li><b>Inicio:</b> ${formatDateTime(s.start)} | <b>Fin:</b> ${formatDateTime(s.end)}</li>`).join("");
             const htmlBody = `<p>Hola ${assignedUser.fullName}, se te han asignado ${userShifts.length} nuevos turnos:</p><ul>${shiftsHtml}</ul>`;
-            await sendEmail(assignedUser.email, subject, "", htmlBody, adminBcc);
+            await sendEmail(assignedUser.email, subject, "", htmlBody);
           } catch (emailError) {
             logger.error(`[NON-FATAL] Bulk email sending failed for user ${userId}:`, emailError);
           }

@@ -2,12 +2,21 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, collection, onSnapshot, Unsubscribe } from 'firebase/firestore'; // 1. Importar onSnapshot
+import { doc, getDoc, collection, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import type { UserProfile, Shift } from './types';
 import { Login } from './components/auth/Login';
 import { AdminDashboard } from './components/dashboard/AdminDashboard';
 import { UserDashboard } from './components/dashboard/UserDashboard';
+import { useIdleSignOut } from './hooks/useIdleTimeout'; // Importar el hook
+
+// --- Componente para gestionar el cierre de sesión por inactividad ---
+const IdleTimeoutManager = () => {
+    // Cierra la sesión después de 30 minutos de inactividad.
+    // Puedes ajustar el tiempo aquí si es necesario.
+    useIdleSignOut(30); 
+    return null; // Este componente no renderiza nada en la UI.
+};
 
 export const App = () => {
     const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
@@ -56,7 +65,7 @@ export const App = () => {
         return () => unsubscribeAuth();
     }, []);
 
-    // 2. useEffect modificado para escuchar en tiempo real
+    // useEffect modificado para escuchar en tiempo real
     useEffect(() => {
         if (!currentUser) {
             // Si no hay usuario, limpiamos los datos para evitar mostrar datos antiguos al hacer logout
@@ -97,7 +106,7 @@ export const App = () => {
             setError(`Error al cargar turnos: ${err.message}`);
         });
 
-        // 3. Función de limpieza que se ejecuta cuando el usuario hace logout
+        // Función de limpieza que se ejecuta cuando el usuario hace logout
         return () => {
             unsubscribeUsers();
             unsubscribeShifts();
@@ -115,6 +124,9 @@ export const App = () => {
 
     return (
         <Router>
+            {/* Activar el gestor de inactividad solo si hay un usuario logueado */}
+            {currentUser && <IdleTimeoutManager />}
+
             <div className="min-h-screen bg-gray-100 text-gray-800">
                 {currentUser && (
                     <header className="bg-white shadow-md">

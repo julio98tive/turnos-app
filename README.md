@@ -11,7 +11,6 @@ Una aplicación web completa para la asignación y notificación de turnos rotat
 -   **Notificaciones Automáticas:** Envío de notificaciones por Email y Telegram para:
     -   Asignación de nuevos turnos (tanto individuales como masivos).
     -   Recordatorios automáticos de turnos próximos (24h para Agentes, 48h para Ingenieros).
-    -   Notificación a todos los administradores sobre cada nuevo turno creado en el sistema.
 
 ## 🚀 Tech Stack
 

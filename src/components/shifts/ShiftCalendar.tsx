@@ -36,9 +36,9 @@ const toBogotaLocalISOString = (date: Date): string => {
     return `${partMap.year}-${partMap.month}-${partMap.day}T${hour}:${partMap.minute}:${partMap.second}`;
 };
 
-// --- Componente Modal (Sin cambios) ---
+// --- Componente Modal (CORREGIDO) ---
 const ShiftDetailModal = ({ event, onClose, onDelete, currentUser }: { event: ModalData; onClose: () => void; onDelete: (shiftId: string) => void; currentUser: UserProfile; }) => {
-    const { type, userId } = event.extendedProps;
+    const { type } = event.extendedProps;
     const formatToLocal = (dateString: string, options: Intl.DateTimeFormatOptions) => {
         if (!dateString) return 'Fecha inválida';
         return new Date(dateString).toLocaleString('es-CO', options);
@@ -47,7 +47,7 @@ const ShiftDetailModal = ({ event, onClose, onDelete, currentUser }: { event: Mo
         ? `Del ${formatToLocal(event.start, { day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' })} al ${formatToLocal(event.end, { day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' })}`
         : `${formatToLocal(event.start, { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Bogota' })} - ${formatToLocal(event.end, { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Bogota' })}`;
     const handleDelete = () => { if (window.confirm(`¿Está seguro de que desea eliminar este turno?`)) onDelete(event.id); };
-    const canDelete = currentUser.role === 'ADMIN' || currentUser.uid === userId;
+    const canDelete = currentUser.role === 'ADMIN';
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4">
             <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
@@ -91,7 +91,8 @@ export const ShiftCalendar: React.FC<ShiftCalendarProps> = ({ shifts = [], users
 
     const holidayEvents: CalendarEvent[] = useMemo(() => getColombianHolidaysForYear(viewedYear).map((holidayDate, index) => ({
         id: `holiday-${viewedYear}-${index}`,
-        title: 'Festivo', start: holidayDate, allDay: true, display: 'background',
+        title: 'Festivo',
+        start: holidayDate, allDay: true, display: 'background',
         backgroundColor: FESTIVO_COLOR,
         extendedProps: { userId: '-', type: 'rotativo', userName: 'Festivo', originalId: `holiday-${viewedYear}-${index}`, originalStart: '', originalEnd: '' },
     })), [viewedYear]);
