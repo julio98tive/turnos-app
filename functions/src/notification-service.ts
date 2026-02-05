@@ -1,3 +1,4 @@
+
 import {onDocumentCreated} from "firebase-functions/v2/firestore";
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import {logger} from "firebase-functions/v2";
@@ -193,49 +194,85 @@ export const sendShiftReminders = onSchedule(
       secrets: ["SMTP_USER", "SMTP_PASSWORD", "TELEGRAM_BOT_TOKEN"],
     },
     async (_event) => {
-      const db = admin.firestore();
-      const now = new Date();
-      const upcomingShifts = await db.collection("shifts").where("reminderNotificationSent", "==", false).where("start", ">", now).get();
-      if (upcomingShifts.empty) return;
-      const agentThreshold = new Date(now.getTime() + 1 * 24 * 60 * 60 * 1000);
-      const engineerThreshold = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+      try {
+        const db = admin.firestore();
+        const now = new Date();
 
-      for (const doc of upcomingShifts.docs) {
-        const shift = {...doc.data(), id: doc.id} as Shift;
-        const shiftStartDate = (shift.start as firestore.Timestamp).toDate();
-        const userRole = (await db.collection("users").doc(shift.userId).get()).data()?.role;
-        const shouldSend = (userRole === "AGENTE" && shiftStartDate <= agentThreshold) || (userRole === "INGENIERO" && shiftStartDate <= engineerThreshold);
+        const upcomingShiftsQuery = db.collection("shifts")
+            .where("reminderNotificationSent", "==", false)
+            .where("start", ">", now);
 
-        if (shouldSend) {
+        const upcomingShiftsSnapshot = await upcomingShiftsQuery.get();
+
+        if (upcomingShiftsSnapshot.empty) {
+          logger.log("No upcoming shifts that need reminders. Exiting function.");
+          return;
+        }
+
+        logger.log(`Found ${upcomingShiftsSnapshot.size} shifts to process for reminders.`);
+
+        const agentThreshold = new Date(now.getTime() + 1 * 24 * 60 * 60 * 1000);
+        const engineerThreshold = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+
+        for (const doc of upcomingShiftsSnapshot.docs) {
+          const shiftId = doc.id;
           try {
+            const shift = doc.data() as Shift;
+
+            if (!shift.start || !(shift.start as firestore.Timestamp).toDate) {
+              logger.warn(`Shift ${shiftId} has a malformed or missing start date. Skipping.`);
+              continue;
+            }
+            const shiftStartDate = (shift.start as firestore.Timestamp).toDate();
+
+            if (!shift.userId) {
+              logger.warn(`Shift ${shiftId} is missing a userId. Skipping.`);
+              continue;
+            }
+
             const userDoc = await db.collection("users").doc(shift.userId).get();
-            if (!userDoc.exists || !userDoc.data()) continue;
+            if (!userDoc.exists || !userDoc.data()) {
+              logger.warn(`User document for userId ${shift.userId} (from shift ${shiftId}) not found. Skipping.`);
+              continue;
+            }
             const assignedUser = userDoc.data() as UserProfile;
+            const userRole = assignedUser.role;
 
-            try {
-              const subject = "Recordatorio de Próximo Turno";
-              const htmlBody = `<p>Hola ${assignedUser.fullName}, este es un recordatorio de tu próximo turno:</p><ul><li><b>Inicio:</b> ${formatDateTime(shift.start)}</li><li><b>Fin:</b> ${formatDateTime(shift.end)}</li></ul>`;
-              await sendEmail(assignedUser.email, subject, "", htmlBody);
-            } catch (emailError) {
-              logger.error(`[NON-FATAL] Reminder email sending failed for shift ${shift.id}:`, emailError);
-            }
+            const shouldSendReminder =
+                        (userRole === "AGENTE" && shiftStartDate <= agentThreshold) ||
+                        (userRole === "INGENIERO" && shiftStartDate <= engineerThreshold);
 
-            if (assignedUser.telegramChatId) {
+            if (shouldSendReminder) {
+              logger.log(`Reminder condition met for shift ${shiftId}. Preparing to send notification.`);
+
               try {
-                const safeFullName = escapeTelegramMarkdown(assignedUser.fullName);
-                const telegramText = `*Recordatorio de Próximo Turno*\n\nHola ${safeFullName}, este es un recordatorio de tu próximo turno:\n${hyphen} *Inicio:* ${formatDateTime(shift.start, true)}\n${hyphen} *Fin:* ${formatDateTime(shift.end, true)}`;
-                await sendTelegramMessage(assignedUser.telegramChatId, telegramText);
-              } catch (telegramError) {
-                logger.error("[NON-FATAL] Failed to send Telegram reminder to user", {telegramError});
+                const subject = "Recordatorio de Próximo Turno";
+                const htmlBody = `<p>Hola ${assignedUser.fullName}, este es un recordatorio de tu próximo turno:</p><ul><li><b>Inicio:</b> ${formatDateTime(shift.start)}</li><li><b>Fin:</b> ${formatDateTime(shift.end)}</li></ul>`;
+                await sendEmail(assignedUser.email, subject, "", htmlBody);
+              } catch (emailError) {
+                logger.error(`[NON-FATAL] Email sending failed for shift ${shiftId}.`, emailError);
               }
-            }
 
-            await doc.ref.update({reminderNotificationSent: true});
-            logger.log(`Sent reminder for shift ${shift.id}.`);
+              if (assignedUser.telegramChatId) {
+                try {
+                  const safeFullName = escapeTelegramMarkdown(assignedUser.fullName);
+                  const telegramText = `*Recordatorio de Próximo Turno*\n\nHola ${safeFullName}, este es un recordatorio de tu próximo turno:\n${hyphen} *Inicio:* ${formatDateTime(shift.start, true)}\n${hyphen} *Fin:* ${formatDateTime(shift.end, true)}`;
+                  await sendTelegramMessage(assignedUser.telegramChatId, telegramText);
+                } catch (telegramError) {
+                  logger.error(`[NON-FATAL] Telegram reminder failed for user ${assignedUser.fullName} on shift ${shiftId}.`, telegramError);
+                }
+              }
+
+              await doc.ref.update({reminderNotificationSent: true});
+              logger.log(`Successfully processed and sent reminder for shift ${shiftId}.`);
+            }
           } catch (error) {
-            logger.error(`[FATAL] sendShiftReminders failed for shift ${shift.id}:`, error);
+            logger.error(`[FATAL-ISOLATED] An unexpected error occurred while processing shift ${shiftId}. This shift has been skipped, but the function will continue.`, error);
           }
         }
+        logger.log("Finished processing all shifts.");
+      } catch (error) {
+        logger.error("[FATAL] The sendShiftReminders function failed entirely. This is likely an issue with the initial database query or configuration.", error);
       }
     }
 );
